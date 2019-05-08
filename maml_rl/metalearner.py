@@ -71,6 +71,8 @@ class MetaLearner(object):
     def sample(self, tasks, first_order=False):
         """Sample trajectories (before and after the update of the parameters) 
         for all the tasks `tasks`.
+
+        :return a list of episodes, eac sampled from adapted policy for each task
         """
         episodes = []
         for task in tasks:
@@ -200,3 +202,31 @@ class MetaLearner(object):
         self.policy.to(device, **kwargs)
         self.baseline.to(device, **kwargs)
         self.device = device
+
+
+class KPolicyMetaLearner(MetaLearner):
+    """
+    Find k policies that best cover the task space
+    """
+    def __init__(self, sampler, policyConstructor, baseline, k, gamma=0.95,
+                 fast_lr=0.5, tau=1.0):
+        super().__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau)
+
+        # number of policies we can keep
+        self.k = k
+        # initialize the set of policies
+        self.policies = [policyConstructor() for _ in range(k)]
+
+        # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
+        self.currentPolicyIdx = 0
+
+    def optimize_policy_index(self, idx):
+        assert 0 <= idx < self.k
+        self.currentPolicyIdx = idx
+
+    def surrogate_loss(self, episodes, old_pis=None):
+        pass
+
+    def step(self, episodes, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
+             ls_max_steps=10, ls_backtrack_ratio=0.5):
+        pass

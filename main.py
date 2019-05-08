@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import json
 
-from maml_rl.metalearner import MetaLearner
+from maml_rl.metalearner import MetaLearner, KPolicyMetaLearner
 from maml_rl.policies import CategoricalMLPPolicy, NormalMLPPolicy
 from maml_rl.baseline import LinearFeatureBaseline
 from maml_rl.sampler import BatchSampler
@@ -45,26 +45,34 @@ def main(args):
     baseline = LinearFeatureBaseline(
         int(np.prod(sampler.envs.observation_space.shape)))
 
+    """
     metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
         fast_lr=args.fast_lr, tau=args.tau, device=args.device)
+    """
+    metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policies, gamma=args.gamma,
+        fast_lr=args.fast_lr, tau=args.tau)
 
-    for batch in range(args.num_batches):
+    for policy_idx in range(args.meta_policies):
+        metalearner.optimize_policy_index(policy_idx)
         tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
-        episodes = metalearner.sample(tasks, first_order=args.first_order)
-        metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
-            cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
-            ls_backtrack_ratio=args.ls_backtrack_ratio)
+        for batch in range(args.num_batches):
+            episodes = metalearner.sample(tasks, first_order=args.first_order)
+            metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
+                cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
+                ls_backtrack_ratio=args.ls_backtrack_ratio)
 
-        # Tensorboard
-        writer.add_scalar('total_rewards/before_update',
-            total_rewards([ep.rewards for ep, _ in episodes]), batch)
-        writer.add_scalar('total_rewards/after_update',
-            total_rewards([ep.rewards for _, ep in episodes]), batch)
+            # Tensorboard
+            writer.add_scalar('total_rewards/before_update',
+                total_rewards([ep.rewards for ep, _ in episodes]), batch)
+            writer.add_scalar('total_rewards/after_update',
+                total_rewards([ep.rewards for _, ep in episodes]), batch)
 
-        # Save policy network
-        with open(os.path.join(save_folder,
-                'policy-{0}.pt'.format(batch)), 'wb') as f:
-            torch.save(policy.state_dict(), f)
+            # Save policy network
+            """
+            with open(os.path.join(save_folder,
+                    'policy-{0}.pt'.format(batch)), 'wb') as f:
+                torch.save(policy.state_dict(), f)
+            """
 
 
 if __name__ == '__main__':
@@ -120,6 +128,10 @@ if __name__ == '__main__':
         help='number of workers for trajectories sampling')
     parser.add_argument('--device', type=str, default='cpu',
         help='set the device (cpu or cuda)')
+
+    # For multi-policy
+    parser.add_argument('--meta-policies', type=int, default=2,
+        help='the number of policies to keep for meta-learning')
 
     args = parser.parse_args()
 

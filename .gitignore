@@ -110,3 +110,6 @@ saves/
 
 # Slurm
 *.out
+
+# pycharm
+.idea
