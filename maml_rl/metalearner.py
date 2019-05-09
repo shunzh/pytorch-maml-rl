@@ -218,16 +218,14 @@ class KPolicyMetaLearner(MetaLearner):
         self.policies = [policyConstructor() for _ in range(self.meta_policy_num)]
 
         # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
-        self.currentPolicyIdx = 0
+        self.current_policy_idx = 0
 
     def optimize_policy_index(self, idx):
         assert 0 <= idx < self.meta_policy_num
 
-        self.currentPolicyIdx = idx
+        self.current_policy_idx = idx
+        # pass the handler to self.policy
+        self.policy = self.policies[self.current_policy_idx]
 
     def surrogate_loss(self, episodes, old_pis=None):
-        pass
-
-    def step(self, episodes, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
-             ls_max_steps=10, ls_backtrack_ratio=0.5):
         pass
