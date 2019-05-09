@@ -49,10 +49,10 @@ def main(args):
     metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
         fast_lr=args.fast_lr, tau=args.tau, device=args.device)
     """
-    metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policies, gamma=args.gamma,
+    metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
         fast_lr=args.fast_lr, tau=args.tau)
 
-    for policy_idx in range(args.meta_policies):
+    for policy_idx in range(args.meta_policy_num):
         metalearner.optimize_policy_index(policy_idx)
         tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
         for batch in range(args.num_batches):
@@ -130,7 +130,7 @@ if __name__ == '__main__':
         help='set the device (cpu or cuda)')
 
     # For multi-policy
-    parser.add_argument('--meta-policies', type=int, default=2,
+    parser.add_argument('--meta-policy-num', type=int, default=2,
         help='the number of policies to keep for meta-learning')
 
     args = parser.parse_args()

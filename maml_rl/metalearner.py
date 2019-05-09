@@ -208,20 +208,21 @@ class KPolicyMetaLearner(MetaLearner):
     """
     Find k policies that best cover the task space
     """
-    def __init__(self, sampler, policyConstructor, baseline, k, gamma=0.95,
+    def __init__(self, sampler, policyConstructor, baseline, meta_policy_num, gamma=0.95,
                  fast_lr=0.5, tau=1.0):
         super().__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau)
 
         # number of policies we can keep
-        self.k = k
+        self.meta_policy_num = meta_policy_num
         # initialize the set of policies
-        self.policies = [policyConstructor() for _ in range(k)]
+        self.policies = [policyConstructor() for _ in range(self.meta_policy_num)]
 
         # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
         self.currentPolicyIdx = 0
 
     def optimize_policy_index(self, idx):
-        assert 0 <= idx < self.k
+        assert 0 <= idx < self.meta_policy_num
+
         self.currentPolicyIdx = idx
 
     def surrogate_loss(self, episodes, old_pis=None):
