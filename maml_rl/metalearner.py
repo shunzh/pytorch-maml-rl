@@ -1,3 +1,5 @@
+import copy
+
 import torch
 from torch.nn.utils.convert_parameters import (vector_to_parameters,
                                                parameters_to_vector)
@@ -36,16 +38,18 @@ class MetaLearner(object):
         self.tau = tau
         self.to(device)
 
-    def inner_loss(self, episodes, params=None):
+    def inner_loss(self, episodes, policy=None, params=None):
         """Compute the inner loss for the one-step gradient update. The inner 
         loss is REINFORCE with baseline [2], computed on advantages estimated 
         with Generalized Advantage Estimation (GAE, [3]).
         """
+        if policy is None: policy = self.policy
+
         values = self.baseline(episodes)
         advantages = episodes.gae(values, tau=self.tau)
         advantages = weighted_normalize(advantages, weights=episodes.mask)
 
-        pi = self.policy(episodes.observations, params=params)
+        pi = policy(episodes.observations, params=params)
         log_probs = pi.log_prob(episodes.actions)
         if log_probs.dim() > 2:
             log_probs = torch.sum(log_probs, dim=2)
@@ -54,16 +58,19 @@ class MetaLearner(object):
 
         return loss
 
-    def adapt(self, episodes, first_order=False):
+    def adapt(self, episodes, policy=None, first_order=False):
         """Adapt the parameters of the policy network to a new task, from 
         sampled trajectories `episodes`, with a one-step gradient update [1].
         """
+        # optimize self.policy by default, or provided in the argument
+        if policy is None: policy = self.policy
+
         # Fit the baseline to the training episodes
         self.baseline.fit(episodes)
         # Get the loss on the training episodes
-        loss = self.inner_loss(episodes)
+        loss = self.inner_loss(episodes, policy=policy)
         # Get the new parameters after a one-step gradient update
-        params = self.policy.update_params(loss, step_size=self.fast_lr,
+        params = policy.update_params(loss, step_size=self.fast_lr,
             first_order=first_order)
 
         return params
@@ -72,7 +79,7 @@ class MetaLearner(object):
         """Sample trajectories (before and after the update of the parameters) 
         for all the tasks `tasks`.
 
-        :return a list of episodes, eac sampled from adapted policy for each task
+        :return: a list of episodes, each sampled from adapted policy for each task
         """
         episodes = []
         for task in tasks:
@@ -208,14 +215,15 @@ class KPolicyMetaLearner(MetaLearner):
     """
     Find k policies that best cover the task space
     """
-    def __init__(self, sampler, policyConstructor, baseline, meta_policy_num, gamma=0.95,
-                 fast_lr=0.5, tau=1.0):
-        super().__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau)
+    def __init__(self, sampler, policy, baseline, meta_policy_num, gamma=0.95,
+                 fast_lr=0.5, tau=1.0, device='cpu'):
+        # will not initialize self.policy here
+        super().__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau, device=device)
 
         # number of policies we can keep
         self.meta_policy_num = meta_policy_num
-        # initialize the set of policies
-        self.policies = [policyConstructor() for _ in range(self.meta_policy_num)]
+        # make multiple copies of policy
+        self.policies = [copy.deepcopy(policy) for _ in range(self.meta_policy_num)]
 
         # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
         self.current_policy_idx = 0
@@ -224,8 +232,84 @@ class KPolicyMetaLearner(MetaLearner):
         assert 0 <= idx < self.meta_policy_num
 
         self.current_policy_idx = idx
-        # pass the handler to self.policy
+        # pass the reference to self.policy, will be used by self.step
         self.policy = self.policies[self.current_policy_idx]
 
+    def evaluate_optimized_policies(self, tasks, first_order=False):
+        """
+        Evaluate self.policies[0:policy_idx - 1] on tasks
+        results kept in self.losses_of_optimized_policies
+
+        :return: None
+        """
+        if self.current_policy_idx > 0:
+            self.values_of_optimized_policies = []
+            for task in tasks:
+                best_policy_value = -float('Inf')
+                for policy in self.policies[self.current_policy_idx]:
+                    self.sampler.reset_task(task)
+                    train_episodes = self.sampler.sample(policy,
+                        gamma=self.gamma, device=self.device)
+
+                    params = self.adapt(train_episodes, policy=policy, first_order=first_order)
+
+                    valid_episodes = self.sampler.sample(policy, params=params,
+                        gamma=self.gamma, device=self.device)
+
+                    #TODO make sure we should use .returns
+                    value = valid_episodes.returns
+
+                    if value > best_policy_value: best_policy_value = value
+
+                self.values_of_optimized_policies.append(best_policy_value)
+        else:
+            self.values_of_optimized_policies = [None] * len(tasks)
+
     def surrogate_loss(self, episodes, old_pis=None):
-        pass
+        """
+        E_r max( V_r^{adapted self.policy} - \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi, 0 )
+
+        :param episodes: [(episodes before adapting, episodes after adapting) for task in sampled tasks]
+        :param old_pis: dummy parameter derived from super
+        :return: mean of losses, mean of kls, pis
+        """
+        losses, kls, pis = [], [], []
+        if old_pis is None:
+            old_pis = [None] * len(episodes)
+
+        for episode_index in range(len(episodes)):
+            (train_episodes, valid_episodes) = episodes[episode_index]
+            old_pi = old_pis[episode_index]
+
+            params = self.adapt(train_episodes)
+            with torch.set_grad_enabled(old_pi is None):
+                pi = self.policy(valid_episodes.observations, params=params)
+                pis.append(detach_distribution(pi))
+
+                if old_pi is None:
+                    old_pi = detach_distribution(pi)
+
+                values = self.baseline(valid_episodes)
+                advantages = valid_episodes.gae(values, tau=self.tau)
+                advantages = weighted_normalize(advantages,
+                    weights=valid_episodes.mask)
+
+                log_ratio = (pi.log_prob(valid_episodes.actions)
+                    - old_pi.log_prob(valid_episodes.actions))
+                if log_ratio.dim() > 2:
+                    log_ratio = torch.sum(log_ratio, dim=2)
+                ratio = torch.exp(log_ratio)
+
+                loss = -weighted_mean(ratio * advantages, dim=0,
+                    weights=valid_episodes.mask)
+                losses.append(loss)
+
+                mask = valid_episodes.mask
+                if valid_episodes.actions.dim() > 2:
+                    mask = mask.unsqueeze(2)
+                kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
+                    weights=mask)
+                kls.append(kl)
+
+        return (torch.mean(torch.stack(losses, dim=0)),
+                torch.mean(torch.stack(kls, dim=0)), pis)
