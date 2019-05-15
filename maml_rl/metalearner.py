@@ -242,7 +242,9 @@ class KPolicyMetaLearner(MetaLearner):
 
         :return: None
         """
-        if self.current_policy_idx > 0:
+        if self.current_policy_idx == 0:
+            self.values_of_optimized_policies = [None] * len(tasks)
+        else:
             self.values_of_optimized_policies = []
             for task in tasks:
                 best_policy_value = -float('Inf')
@@ -256,14 +258,26 @@ class KPolicyMetaLearner(MetaLearner):
                     valid_episodes = self.sampler.sample(policy, params=params,
                         gamma=self.gamma, device=self.device)
 
-                    #TODO make sure we should use .returns
+                    #TODO .returns or .rewards
                     value = valid_episodes.returns
 
                     if value > best_policy_value: best_policy_value = value
 
                 self.values_of_optimized_policies.append(best_policy_value)
-        else:
-            self.values_of_optimized_policies = [None] * len(tasks)
+
+    def sample(self, tasks, first_order=False):
+        episodes = []
+        for task in tasks:
+            self.sampler.reset_task(task)
+            train_episodes = self.sampler.sample(self.policy,
+                gamma=self.gamma, device=self.device)
+
+            params = self.adapt(train_episodes, first_order=first_order)
+
+            valid_episodes = self.sampler.sample(self.policy, params=params,
+                gamma=self.gamma, device=self.device)
+            episodes.append((train_episodes, valid_episodes))
+        return episodes
 
     def surrogate_loss(self, episodes, old_pis=None):
         """

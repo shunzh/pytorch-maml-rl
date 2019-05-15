@@ -69,16 +69,19 @@ def main(args):
 
     elif args.alg == 'multi-policy-maml':
         metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policies, gamma=args.gamma,
-            fast_lr=args.fast_lr, tau=args.tau)
+            fast_lr=args.fast_lr, tau=args.tau, device=args.device)
 
         for policy_idx in range(args.meta_policy_num):
             metalearner.optimize_policy_index(policy_idx)
 
+            # need to sample outside.. need to evaluate previous policies on these tasks
             tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
             metalearner.evaluate_optimized_policies(tasks)
 
             for batch in range(args.num_batches):
+                # return trajectories by adapting metalearner.policy on tasks
                 episodes = metalearner.sample(tasks, first_order=args.first_order)
+                # loss is computed inside, then update policies
                 metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
                     cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                     ls_backtrack_ratio=args.ls_backtrack_ratio)
