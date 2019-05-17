@@ -1,4 +1,5 @@
 import copy
+import random
 
 import torch
 from torch.nn.utils.convert_parameters import (vector_to_parameters,
@@ -8,6 +9,11 @@ from torch.distributions.kl import kl_divergence
 from maml_rl.utils.torch_utils import (weighted_mean, detach_distribution,
                                        weighted_normalize)
 from maml_rl.utils.optimization import conjugate_gradient
+
+def total_rewards(episodes_rewards, aggregation=torch.mean):
+    rewards = torch.mean(torch.stack([aggregation(torch.sum(rewards, dim=0))
+        for rewards in episodes_rewards], dim=0))
+    return rewards.item()
 
 class MetaLearner(object):
     """Meta-learner
@@ -218,12 +224,13 @@ class KPolicyMetaLearner(MetaLearner):
     def __init__(self, sampler, policy, baseline, meta_policy_num, gamma=0.95,
                  fast_lr=0.5, tau=1.0, device='cpu'):
         # will not initialize self.policy here
-        super(KPolicyMetaLearner, self).__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau, device=device)
+        super(KPolicyMetaLearner, self).__init__(sampler, policy, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau, device=device)
 
         # number of policies we can keep
         self.meta_policy_num = meta_policy_num
-        # make multiple copies of policy
-        self.policies = [copy.deepcopy(policy) for _ in range(self.meta_policy_num)]
+        # the set of policies will be constructed greedily
+        # start with the first one
+        self.policies = [policy] + [None for _ in range(self.meta_policy_num - 1)]
 
         # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
         self.current_policy_idx = 0
@@ -232,19 +239,21 @@ class KPolicyMetaLearner(MetaLearner):
         assert 0 <= idx < self.meta_policy_num
 
         self.current_policy_idx = idx
-        # self.policy will be the policy to optimize
-        self.policy = self.policies[self.current_policy_idx]
+        if self.current_policy_idx > 0:
+            # randomly choose one existing policy to improve in this iteration
+            self.policy = copy.deepcopy(random.choice(self.policies[:self.current_policy_idx]))
+            self.policies[self.current_policy_idx] = self.policy
 
     def evaluate_optimized_policies(self, tasks, first_order=False):
         """
-        Evaluate self.policies[0:policy_idx - 1] on tasks
+        This does nothing when self.current_policy_idx == 0.
+        It finds the best policy value from self.policies[0:policy_idx - 1] for each task in tasks
         results kept in self.losses_of_optimized_policies
 
         :return: None
         """
-        if self.current_policy_idx == 0:
-            self.values_of_optimized_policies = [None] * len(tasks)
-        else:
+        if self.current_policy_idx > 0:
+            # this property only exists when we already find the first policy
             self.values_of_optimized_policies = []
             for task in tasks:
                 best_policy_value = -float('Inf')
@@ -258,12 +267,13 @@ class KPolicyMetaLearner(MetaLearner):
                     valid_episodes = self.sampler.sample(policy, params=params,
                         gamma=self.gamma, device=self.device)
 
-                    #TODO .returns or .rewards
-                    value = valid_episodes.returns
+                    value = total_rewards(valid_episodes.rewards)
 
                     if value > best_policy_value: best_policy_value = value
 
                 self.values_of_optimized_policies.append(best_policy_value)
+
+            print(self.values_of_optimized_policies)
 
     def surrogate_loss(self, episodes, old_pis=None):
         """
@@ -284,45 +294,44 @@ class KPolicyMetaLearner(MetaLearner):
             (train_episodes, valid_episodes) = episodes[episode_index]
             old_pi = old_pis[episode_index]
 
-            if self.current_policy_idx > 0 and valid_episodes.returns < self.values_of_optimized_policies[episode_index]:
-                # do not worry about this since this is a bad policy
-                losses.append(0)
-                continue
+            print(str(total_rewards(valid_episodes.rewards)))
 
-            params = self.adapt(train_episodes)
-            with torch.set_grad_enabled(old_pi is None):
-                pi = self.policy(valid_episodes.observations, params=params)
-                pis.append(detach_distribution(pi))
+            if self.current_policy_idx > 0 and total_rewards(valid_episodes.rewards) < self.values_of_optimized_policies[episode_index]:
+                # do not worry about this since we already have a good policy to cover this task
+                losses.append(torch.zeros(1, requires_grad=False))
+                # do I assume KL is zero??
+                kls.append(torch.zeros(1))
+            else:
+                params = self.adapt(train_episodes)
+                with torch.set_grad_enabled(old_pi is None):
+                    pi = self.policy(valid_episodes.observations, params=params)
+                    pis.append(detach_distribution(pi))
 
-                if old_pi is None:
-                    old_pi = detach_distribution(pi)
+                    if old_pi is None:
+                        old_pi = detach_distribution(pi)
 
-                values = self.baseline(valid_episodes)
-                advantages = valid_episodes.gae(values, tau=self.tau)
-                advantages = weighted_normalize(advantages,
-                    weights=valid_episodes.mask)
+                    values = self.baseline(valid_episodes)
+                    advantages = valid_episodes.gae(values, tau=self.tau)
+                    advantages = weighted_normalize(advantages,
+                        weights=valid_episodes.mask)
 
-                log_ratio = (pi.log_prob(valid_episodes.actions)
-                    - old_pi.log_prob(valid_episodes.actions))
-                if log_ratio.dim() > 2:
-                    log_ratio = torch.sum(log_ratio, dim=2)
-                ratio = torch.exp(log_ratio)
+                    log_ratio = (pi.log_prob(valid_episodes.actions)
+                        - old_pi.log_prob(valid_episodes.actions))
+                    if log_ratio.dim() > 2:
+                        log_ratio = torch.sum(log_ratio, dim=2)
+                    ratio = torch.exp(log_ratio)
 
-                loss = -weighted_mean(ratio * advantages, dim=0,
-                    weights=valid_episodes.mask)
-                losses.append(loss)
+                    loss = -weighted_mean(ratio * advantages, dim=0,
+                        weights=valid_episodes.mask)
+                    losses.append(loss)
 
-                mask = valid_episodes.mask
-                if valid_episodes.actions.dim() > 2:
-                    mask = mask.unsqueeze(2)
-                kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
-                    weights=mask)
-                kls.append(kl)
+                    mask = valid_episodes.mask
+                    if valid_episodes.actions.dim() > 2:
+                        mask = mask.unsqueeze(2)
+                    kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
+                        weights=mask)
+                    kls.append(kl)
 
+        print(losses)
         return (torch.mean(torch.stack(losses, dim=0)),
                 torch.mean(torch.stack(kls, dim=0)), pis)
-
-    def to(self, device, **kwargs):
-        #self.policy.to(device, **kwargs)
-        self.baseline.to(device, **kwargs)
-        self.device = device

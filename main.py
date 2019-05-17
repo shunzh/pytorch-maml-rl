@@ -4,17 +4,12 @@ import numpy as np
 import torch
 import json
 
-from maml_rl.metalearner import MetaLearner, KPolicyMetaLearner
+from maml_rl.metalearner import MetaLearner, KPolicyMetaLearner, total_rewards
 from maml_rl.policies import CategoricalMLPPolicy, NormalMLPPolicy
 from maml_rl.baseline import LinearFeatureBaseline
 from maml_rl.sampler import BatchSampler
 
 from tensorboardX import SummaryWriter
-
-def total_rewards(episodes_rewards, aggregation=torch.mean):
-    rewards = torch.mean(torch.stack([aggregation(torch.sum(rewards, dim=0))
-        for rewards in episodes_rewards], dim=0))
-    return rewards.item()
 
 def main(args):
     continuous_actions = (args.env_name in ['AntVel-v1', 'AntDir-v1',
@@ -65,7 +60,6 @@ def main(args):
                 ls_backtrack_ratio=args.ls_backtrack_ratio)
 
             # Tensorboard
-            """
             writer.add_scalar('total_rewards/before_update',
                 total_rewards([ep.rewards for ep, _ in episodes]), batch)
             writer.add_scalar('total_rewards/after_update',
@@ -75,7 +69,6 @@ def main(args):
             with open(os.path.join(save_folder,
                     'policy-{0}.pt'.format(batch)), 'wb') as f:
                 torch.save(policy.state_dict(), f)
-            """
 
 if __name__ == '__main__':
     import argparse
