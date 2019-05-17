@@ -218,7 +218,7 @@ class KPolicyMetaLearner(MetaLearner):
     def __init__(self, sampler, policy, baseline, meta_policy_num, gamma=0.95,
                  fast_lr=0.5, tau=1.0, device='cpu'):
         # will not initialize self.policy here
-        super().__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau, device=device)
+        super(KPolicyMetaLearner, self).__init__(sampler, None, baseline, gamma=gamma, fast_lr=fast_lr, tau=tau, device=device)
 
         # number of policies we can keep
         self.meta_policy_num = meta_policy_num
@@ -232,7 +232,7 @@ class KPolicyMetaLearner(MetaLearner):
         assert 0 <= idx < self.meta_policy_num
 
         self.current_policy_idx = idx
-        # pass the reference to self.policy, will be used by self.step
+        # self.policy will be the policy to optimize
         self.policy = self.policies[self.current_policy_idx]
 
     def evaluate_optimized_policies(self, tasks, first_order=False):
@@ -248,7 +248,7 @@ class KPolicyMetaLearner(MetaLearner):
             self.values_of_optimized_policies = []
             for task in tasks:
                 best_policy_value = -float('Inf')
-                for policy in self.policies[self.current_policy_idx]:
+                for policy in self.policies[:self.current_policy_idx]:
                     self.sampler.reset_task(task)
                     train_episodes = self.sampler.sample(policy,
                         gamma=self.gamma, device=self.device)
@@ -265,23 +265,12 @@ class KPolicyMetaLearner(MetaLearner):
 
                 self.values_of_optimized_policies.append(best_policy_value)
 
-    def sample(self, tasks, first_order=False):
-        episodes = []
-        for task in tasks:
-            self.sampler.reset_task(task)
-            train_episodes = self.sampler.sample(self.policy,
-                gamma=self.gamma, device=self.device)
-
-            params = self.adapt(train_episodes, first_order=first_order)
-
-            valid_episodes = self.sampler.sample(self.policy, params=params,
-                gamma=self.gamma, device=self.device)
-            episodes.append((train_episodes, valid_episodes))
-        return episodes
-
     def surrogate_loss(self, episodes, old_pis=None):
         """
         E_r max( V_r^{adapted self.policy} - \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi, 0 )
+
+        V_r^{adapted self.policy} can be evaluated by valid_episodes in episodes
+        \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi is computed in self.values_of_optimized_policies
 
         :param episodes: [(episodes before adapting, episodes after adapting) for task in sampled tasks]
         :param old_pis: dummy parameter derived from super
@@ -294,6 +283,11 @@ class KPolicyMetaLearner(MetaLearner):
         for episode_index in range(len(episodes)):
             (train_episodes, valid_episodes) = episodes[episode_index]
             old_pi = old_pis[episode_index]
+
+            if self.current_policy_idx > 0 and valid_episodes.returns < self.values_of_optimized_policies[episode_index]:
+                # do not worry about this since this is a bad policy
+                losses.append(0)
+                continue
 
             params = self.adapt(train_episodes)
             with torch.set_grad_enabled(old_pi is None):
@@ -327,3 +321,8 @@ class KPolicyMetaLearner(MetaLearner):
 
         return (torch.mean(torch.stack(losses, dim=0)),
                 torch.mean(torch.stack(kls, dim=0)), pis)
+
+    def to(self, device, **kwargs):
+        #self.policy.to(device, **kwargs)
+        self.baseline.to(device, **kwargs)
+        self.device = device

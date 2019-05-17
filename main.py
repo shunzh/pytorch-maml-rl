@@ -45,18 +45,27 @@ def main(args):
     baseline = LinearFeatureBaseline(
         int(np.prod(sampler.envs.observation_space.shape)))
 
-    if args.alg == 'maml':
-        metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
-            fast_lr=args.fast_lr, tau=args.tau, device=args.device)
+    metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
+        fast_lr=args.fast_lr, tau=args.tau, device=args.device)
+
+    for policy_idx in range(args.meta_policy_num):
+        print(policy_idx)
+        metalearner.optimize_policy_index(policy_idx)
+
+        # need to sample outside.. need to evaluate previous policies on these tasks
+        tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
+        metalearner.evaluate_optimized_policies(tasks)
 
         for batch in range(args.num_batches):
-            tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
+            print('batch num ' + str(batch))
             episodes = metalearner.sample(tasks, first_order=args.first_order)
+            # loss is computed inside, then update policies
             metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
                 cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                 ls_backtrack_ratio=args.ls_backtrack_ratio)
 
             # Tensorboard
+            """
             writer.add_scalar('total_rewards/before_update',
                 total_rewards([ep.rewards for ep, _ in episodes]), batch)
             writer.add_scalar('total_rewards/after_update',
@@ -66,31 +75,7 @@ def main(args):
             with open(os.path.join(save_folder,
                     'policy-{0}.pt'.format(batch)), 'wb') as f:
                 torch.save(policy.state_dict(), f)
-
-    elif args.alg == 'multi-policy-maml':
-        metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policies, gamma=args.gamma,
-            fast_lr=args.fast_lr, tau=args.tau, device=args.device)
-
-        for policy_idx in range(args.meta_policy_num):
-            metalearner.optimize_policy_index(policy_idx)
-
-            # need to sample outside.. need to evaluate previous policies on these tasks
-            tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
-            metalearner.evaluate_optimized_policies(tasks)
-
-            for batch in range(args.num_batches):
-                # return trajectories by adapting metalearner.policy on tasks
-                episodes = metalearner.sample(tasks, first_order=args.first_order)
-                # loss is computed inside, then update policies
-                metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
-                    cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
-                    ls_backtrack_ratio=args.ls_backtrack_ratio)
-
-                # Tensorboard
-
-    else:
-        raise Exception('unknown algorithm ' + args.alg)
-
+            """
 
 if __name__ == '__main__':
     import argparse
@@ -101,8 +86,6 @@ if __name__ == '__main__':
         'Model-Agnostic Meta-Learning (MAML)')
 
     # General
-    parser.add_argument('--alg', type=str, default='maml',
-        help='name of the algorithm')
     parser.add_argument('--env-name', type=str,
         help='name of the environment')
     parser.add_argument('--gamma', type=float, default=0.95,
