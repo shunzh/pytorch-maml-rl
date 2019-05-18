@@ -294,13 +294,13 @@ class KPolicyMetaLearner(MetaLearner):
             (train_episodes, valid_episodes) = episodes[episode_index]
             old_pi = old_pis[episode_index]
 
-            print(str(total_rewards(valid_episodes.rewards)))
-
             if self.current_policy_idx > 0 and total_rewards(valid_episodes.rewards) < self.values_of_optimized_policies[episode_index]:
                 # do not worry about this since we already have a good policy to cover this task
-                losses.append(torch.zeros(1, requires_grad=False))
-                # do I assume KL is zero??
-                kls.append(torch.zeros(1))
+                losses.append(torch.tensor(0.0))
+
+                # FIXME how to deal with these?
+                kls.append(torch.tensor(0.0))
+                pis.append(None)
             else:
                 params = self.adapt(train_episodes)
                 with torch.set_grad_enabled(old_pi is None):
@@ -333,5 +333,7 @@ class KPolicyMetaLearner(MetaLearner):
                     kls.append(kl)
 
         print(losses)
+        print(torch.mean(torch.stack(losses, dim=0)))
+
         return (torch.mean(torch.stack(losses, dim=0)),
                 torch.mean(torch.stack(kls, dim=0)), pis)

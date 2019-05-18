@@ -61,9 +61,9 @@ def main(args):
 
             # Tensorboard
             writer.add_scalar('total_rewards/before_update',
-                total_rewards([ep.rewards for ep, _ in episodes]), batch)
+                total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
             writer.add_scalar('total_rewards/after_update',
-                total_rewards([ep.rewards for _, ep in episodes]), batch)
+                total_rewards([ep.rewards for _, ep in episodes]), policy_idx * args.num_batches + batch)
 
             # Save policy network
             with open(os.path.join(save_folder,
