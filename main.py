@@ -11,13 +11,19 @@ from maml_rl.sampler import BatchSampler
 
 from tensorboardX import SummaryWriter
 
+def set_random_seed(rnd):
+    torch.manual_seed(rnd)
+    np.random.seed(rnd)
+
 def main(args):
+    set_random_seed(args.random)
+
     continuous_actions = (args.env_name in ['AntVel-v1', 'AntDir-v1',
         'AntPos-v0', 'HalfCheetahVel-v1', 'HalfCheetahDir-v1',
         '2DNavigation-v0'])
 
-    writer = SummaryWriter('./logs/{0}'.format(args.output_folder))
-    save_folder = './saves/{0}'.format(args.output_folder)
+    writer = SummaryWriter('./logs/{0}'.format(args.alg))
+    save_folder = './saves/{0}'.format(args.alg)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     with open(os.path.join(save_folder, 'config.json'), 'w') as f:
@@ -40,35 +46,59 @@ def main(args):
     baseline = LinearFeatureBaseline(
         int(np.prod(sampler.envs.observation_space.shape)))
 
-    metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
-        fast_lr=args.fast_lr, tau=args.tau, device=args.device)
+    if args.alg == 'maml':
+        # vanilla maml
+        set_random_seed(0)
+        metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
+            fast_lr=args.fast_lr, tau=args.tau, device=args.device)
 
-    for policy_idx in range(args.meta_policy_num):
-        print(policy_idx)
-        metalearner.optimize_policy_index(policy_idx)
-
-        # need to sample outside.. need to evaluate previous policies on these tasks
-        tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
-        metalearner.evaluate_optimized_policies(tasks)
-
-        for batch in range(args.num_batches):
-            print('batch num ' + str(batch))
+        for batch in range(args.meta_policy_num * args.num_batches):
+            tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
             episodes = metalearner.sample(tasks, first_order=args.first_order)
-            # loss is computed inside, then update policies
             metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
                 cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                 ls_backtrack_ratio=args.ls_backtrack_ratio)
 
             # Tensorboard
-            writer.add_scalar('total_rewards/before_update',
-                total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
-            writer.add_scalar('total_rewards/after_update',
-                total_rewards([ep.rewards for _, ep in episodes]), policy_idx * args.num_batches + batch)
+            writer.add_scalar('maml/before_update',
+                total_rewards([ep.rewards for ep, _ in episodes]), batch)
+            writer.add_scalar('maml/after_update',
+                total_rewards([ep.rewards for _, ep in episodes]), batch)
 
             # Save policy network
             with open(os.path.join(save_folder,
                     'policy-{0}.pt'.format(batch)), 'wb') as f:
                 torch.save(policy.state_dict(), f)
+
+    elif args.alg == 'kmaml':
+        # multi-policy maml
+        metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
+            fast_lr=args.fast_lr, tau=args.tau, device=args.device)
+
+        for policy_idx in range(args.meta_policy_num):
+            print(policy_idx)
+            metalearner.optimize_policy_index(policy_idx)
+
+            # need to sample outside.. need to evaluate previous policies on these tasks
+
+            for batch in range(args.num_batches):
+                print('batch num ' + str(batch))
+
+                tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
+                metalearner.evaluate_optimized_policies(tasks)
+
+                episodes = metalearner.sample(tasks, first_order=args.first_order)
+                # loss is computed inside, then update policies
+                metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
+                    cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
+                    ls_backtrack_ratio=args.ls_backtrack_ratio)
+
+                # Tensorboard
+                writer.add_scalar('kmaml/before_update',
+                    total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
+                writer.add_scalar('kmaml/after_update',
+                    total_rewards([ep.rewards for _, ep in episodes]), policy_idx * args.num_batches + batch)
+
 
 if __name__ == '__main__':
     import argparse
@@ -87,6 +117,10 @@ if __name__ == '__main__':
         help='value of the discount factor for GAE')
     parser.add_argument('--first-order', action='store_true',
         help='use the first-order approximation of MAML')
+    parser.add_argument('--alg',type=str, default='maml',
+        help='algorithm to run')
+    parser.add_argument('--random', type=int, default=0,
+        help='random seed')
 
     # Policy network (relu activation function)
     parser.add_argument('--hidden-size', type=int, default=100,
@@ -117,8 +151,6 @@ if __name__ == '__main__':
         help='maximum number of iterations for line search')
 
     # Miscellaneous
-    parser.add_argument('--output-folder', type=str, default='maml',
-        help='name of the output folder')
     parser.add_argument('--num-workers', type=int, default=mp.cpu_count() - 1,
         help='number of workers for trajectories sampling')
     parser.add_argument('--device', type=str, default='cpu',
@@ -140,6 +172,6 @@ if __name__ == '__main__':
         if torch.cuda.is_available() else 'cpu')
     # Slurm
     if 'SLURM_JOB_ID' in os.environ:
-        args.output_folder += '-{0}'.format(os.environ['SLURM_JOB_ID'])
+        args.alg += '-{0}'.format(os.environ['SLURM_JOB_ID'])
 
     main(args)
