@@ -1,3 +1,5 @@
+import random
+
 import maml_rl.envs
 import gym
 import numpy as np
@@ -13,6 +15,7 @@ from tensorboardX import SummaryWriter
 
 def set_random_seed(rnd):
     torch.manual_seed(rnd)
+    random.seed(rnd)
     np.random.seed(rnd)
 
 def main(args):
@@ -48,7 +51,6 @@ def main(args):
 
     if args.alg == 'maml':
         # vanilla maml
-        set_random_seed(0)
         metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
             fast_lr=args.fast_lr, tau=args.tau, device=args.device)
 
@@ -78,8 +80,6 @@ def main(args):
         for policy_idx in range(args.meta_policy_num):
             print(policy_idx)
             metalearner.optimize_policy_index(policy_idx)
-
-            # need to sample outside.. need to evaluate previous policies on these tasks
 
             for batch in range(args.num_batches):
                 print('batch num ' + str(batch))
@@ -157,7 +157,7 @@ if __name__ == '__main__':
         help='set the device (cpu or cuda)')
 
     # For multi-policy
-    parser.add_argument('--meta-policy-num', type=int, default=2,
+    parser.add_argument('--meta-policy-num', type=int, default=1,
         help='the number of policies to keep for meta-learning')
 
     args = parser.parse_args()

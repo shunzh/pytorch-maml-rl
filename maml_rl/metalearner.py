@@ -273,6 +273,7 @@ class KPolicyMetaLearner(MetaLearner):
 
                 self.values_of_optimized_policies.append(best_policy_value)
 
+            print("values of optimized policies")
             print(self.values_of_optimized_policies)
 
     def surrogate_loss(self, episodes, old_pis=None):
