@@ -11,7 +11,7 @@ def make_env(env_name):
     return _make_env
 
 class BatchSampler(object):
-    def __init__(self, env_name, batch_size, num_workers=mp.cpu_count() - 1):
+    def __init__(self, env_name, batch_size, seed=None, num_workers=mp.cpu_count() - 1):
         self.env_name = env_name
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -20,6 +20,7 @@ class BatchSampler(object):
         self.envs = SubprocVecEnv([make_env(env_name) for _ in range(num_workers)],
             queue=self.queue)
         self._env = gym.make(env_name)
+        self._env.seed(seed)
 
     def sample(self, policy, params=None, gamma=0.95, device='cpu'):
         episodes = BatchEpisodes(batch_size=self.batch_size, gamma=gamma, device=device)

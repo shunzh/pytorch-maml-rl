@@ -35,7 +35,7 @@ def main(args):
         json.dump(config, f, indent=2)
 
     sampler = BatchSampler(args.env_name, batch_size=args.fast_batch_size,
-        num_workers=args.num_workers)
+        num_workers=args.num_workers, seed=args.random)
     if continuous_actions:
         policy = NormalMLPPolicy(
             int(np.prod(sampler.envs.observation_space.shape)),
@@ -93,11 +93,9 @@ def main(args):
                     cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                     ls_backtrack_ratio=args.ls_backtrack_ratio)
 
-                # Tensorboard
-                writer.add_scalar('kmaml/before_update',
-                    total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
-                writer.add_scalar('kmaml/after_update',
-                    total_rewards([ep.rewards for _, ep in episodes]), policy_idx * args.num_batches + batch)
+            # Tensorboard: record the trajectory of self.policy
+            writer.add_scalars('kmaml/meta_policy_' + str(policy_idx),
+                total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
 
 
 if __name__ == '__main__':

@@ -244,6 +244,20 @@ class KPolicyMetaLearner(MetaLearner):
             self.policy = copy.deepcopy(random.choice(self.policies[:self.current_policy_idx]))
             self.policies[self.current_policy_idx] = self.policy
 
+    def sample_meta_policy(self, idx=None):
+        """
+        sample the current working meta-policy or the idx-th meta-policy
+        """
+        if idx is None:
+            # print the current working policy
+            policy = self.policy
+        else:
+            policy = self.policies[idx]
+
+        self.sampler.reset_task()
+        episodes = self.sampler.sample(policy, gamma=self.gamma, device=self.device)
+        return episodes
+
     def evaluate_optimized_policies(self, tasks, first_order=False):
         """
         This does nothing when self.current_policy_idx == 0.
@@ -332,9 +346,6 @@ class KPolicyMetaLearner(MetaLearner):
                     kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
                         weights=mask)
                     kls.append(kl)
-
-        print(losses)
-        print(torch.mean(torch.stack(losses, dim=0)))
 
         return (torch.mean(torch.stack(losses, dim=0)),
                 torch.mean(torch.stack(kls, dim=0)), pis)
