@@ -66,3 +66,9 @@ register(
     entry_point='maml_rl.envs.navigation:Navigation2DEnv',
     max_episode_steps=100
 )
+
+register(
+    '2DNavigationBiased-v0',
+    entry_point='maml_rl.envs.navigation:Navigation2DBiasedEnv',
+    max_episode_steps=100
+)

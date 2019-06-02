@@ -113,3 +113,6 @@ saves/
 
 # pycharm
 .idea
+
+# figures
+*.pdf

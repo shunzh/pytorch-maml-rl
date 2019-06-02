@@ -96,10 +96,7 @@ def main(args):
                     cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                     ls_backtrack_ratio=args.ls_backtrack_ratio)
 
-            # Tensorboard: record the trajectory of self.policy
-            print('kmaml/meta_policy_' + str(policy_idx))
-
-            # use a random task (no update here anyway)
+            # use a random task (no update here anyway) to visualize meta-policies
             tasks = sampler.sample_tasks(num_tasks=1)
             trajectories.append(metalearner.sample_meta_policy(tasks[0]))
         plotTrajectories(trajectories)

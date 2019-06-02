@@ -59,3 +59,10 @@ class Navigation2DEnv(gym.Env):
         done = ((np.abs(x) < 0.01) and (np.abs(y) < 0.01))
 
         return self._state, reward, done, self._task
+
+
+class Navigation2DBiasedEnv(Navigation2DEnv):
+    def sample_tasks(self, num_tasks):
+        goals = self.np_random.uniform(-0.5, 0.5, size=(num_tasks, 2))
+        tasks = [{'goal': goal} for goal in goals]
+        return tasks
