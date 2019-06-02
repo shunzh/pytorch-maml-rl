@@ -101,4 +101,5 @@ class BatchEpisodes(object):
             self._rewards_list[batch_id].append(reward.astype(np.float32))
 
     def __len__(self):
+        # the lengthe of the longest episode
         return max(map(len, self._rewards_list))

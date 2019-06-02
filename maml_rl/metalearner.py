@@ -244,7 +244,7 @@ class KPolicyMetaLearner(MetaLearner):
             self.policy = copy.deepcopy(random.choice(self.policies[:self.current_policy_idx]))
             self.policies[self.current_policy_idx] = self.policy
 
-    def sample_meta_policy(self, idx=None):
+    def sample_meta_policy(self, task, idx=None):
         """
         sample the current working meta-policy or the idx-th meta-policy
         """
@@ -254,9 +254,10 @@ class KPolicyMetaLearner(MetaLearner):
         else:
             policy = self.policies[idx]
 
-        self.sampler.reset_task()
+        self.sampler.reset_task(task)
         episodes = self.sampler.sample(policy, gamma=self.gamma, device=self.device)
-        return episodes
+        # only return the first sampling episode?
+        return episodes.observations[:, 0]
 
     def evaluate_optimized_policies(self, tasks, first_order=False):
         """

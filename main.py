@@ -3,6 +3,7 @@ import random
 import maml_rl.envs
 import gym
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import json
 
@@ -77,6 +78,8 @@ def main(args):
         metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
             fast_lr=args.fast_lr, tau=args.tau, device=args.device)
 
+        # visualize the poolicies' behavior
+        trajectories = []
         for policy_idx in range(args.meta_policy_num):
             print(policy_idx)
             metalearner.optimize_policy_index(policy_idx)
@@ -94,9 +97,21 @@ def main(args):
                     ls_backtrack_ratio=args.ls_backtrack_ratio)
 
             # Tensorboard: record the trajectory of self.policy
-            writer.add_scalars('kmaml/meta_policy_' + str(policy_idx),
-                total_rewards([ep.rewards for ep, _ in episodes]), policy_idx * args.num_batches + batch)
+            print('kmaml/meta_policy_' + str(policy_idx))
 
+            # use a random task (no update here anyway)
+            tasks = sampler.sample_tasks(num_tasks=1)
+            trajectories.append(metalearner.sample_meta_policy(tasks[0]))
+        plotTrajectories(trajectories)
+
+def plotTrajectories(trajectories):
+    """
+    plot a list of trajectories
+    """
+    for traj in trajectories:
+        plt.plot(traj[:, 0].numpy(), traj[:, 1].numpy())
+    plt.show()
+    plt.savefig('trajectories.pdf')
 
 if __name__ == '__main__':
     import argparse
@@ -155,7 +170,7 @@ if __name__ == '__main__':
         help='set the device (cpu or cuda)')
 
     # For multi-policy
-    parser.add_argument('--meta-policy-num', type=int, default=1,
+    parser.add_argument('--meta-policy-num', type=int, default=2,
         help='the number of policies to keep for meta-learning')
 
     args = parser.parse_args()
