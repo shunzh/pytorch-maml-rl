@@ -24,7 +24,7 @@ def main(args):
 
     continuous_actions = (args.env_name in ['AntVel-v1', 'AntDir-v1',
         'AntPos-v0', 'HalfCheetahVel-v1', 'HalfCheetahDir-v1',
-        '2DNavigation-v0'])
+        '2DNavigation-v0', '2DNavigationBiased-v0'])
 
     writer = SummaryWriter('./logs/{0}'.format(args.alg))
     save_folder = './saves/{0}'.format(args.alg)
@@ -85,7 +85,7 @@ def main(args):
             metalearner.optimize_policy_index(policy_idx)
 
             for batch in range(args.num_batches):
-                print('batch num ' + str(batch))
+                print('batch num %d' % batch)
 
                 tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
                 metalearner.evaluate_optimized_policies(tasks)
@@ -96,6 +96,10 @@ def main(args):
                     cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
                     ls_backtrack_ratio=args.ls_backtrack_ratio)
 
+                # not sure what to write in tensorboard...
+                for epIdx in range(len(episodes)):
+                    writer.add_scalar('kmaml/pi_' + str(policy_idx) + '_task_' + str(epIdx),
+                        total_rewards([episodes[epIdx][1].rewards]), batch)
             # use a random task (no update here anyway) to visualize meta-policies
             tasks = sampler.sample_tasks(num_tasks=1)
             trajectories.append(metalearner.sample_meta_policy(tasks[0]))
@@ -107,8 +111,8 @@ def plotTrajectories(trajectories):
     """
     for traj in trajectories:
         plt.plot(traj[:, 0].numpy(), traj[:, 1].numpy())
-    plt.show()
     plt.savefig('trajectories.pdf')
+    plt.show()
 
 if __name__ == '__main__':
     import argparse

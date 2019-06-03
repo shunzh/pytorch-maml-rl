@@ -78,7 +78,7 @@ class MetaLearner(object):
         # Get the new parameters after a one-step gradient update
         params = policy.update_params(loss, step_size=self.fast_lr,
             first_order=first_order)
-
+            
         return params
 
     def sample(self, tasks, first_order=False):
@@ -180,6 +180,11 @@ class MetaLearner(object):
         on Trust Region Policy Optimization (TRPO, [4]).
         """
         old_loss, _, old_pis = self.surrogate_loss(episodes)
+
+        if old_loss is None:
+            # nothing needs to be done
+            return
+
         grads = torch.autograd.grad(old_loss, self.policy.parameters())
         grads = parameters_to_vector(grads)
 
@@ -205,6 +210,7 @@ class MetaLearner(object):
                                  self.policy.parameters())
             loss, kl, _ = self.surrogate_loss(episodes, old_pis=old_pis)
             improve = loss - old_loss
+            # if the new loss is smaller, and kl divergence is small enough (so the new policy is not too far away)
             if (improve.item() < 0.0) and (kl.item() < max_kl):
                 break
             step_size *= ls_backtrack_ratio
@@ -228,9 +234,8 @@ class KPolicyMetaLearner(MetaLearner):
 
         # number of policies we can keep
         self.meta_policy_num = meta_policy_num
-        # the set of policies will be constructed greedily
-        # start with the first one
-        self.policies = [policy] + [None for _ in range(self.meta_policy_num - 1)]
+        # initialize meta-policies
+        self.policies = [copy.deepcopy(policy) for _ in range(self.meta_policy_num)]
 
         # the index of policy which we are going to optimize (with 0 .. index - 1 fixed)
         self.current_policy_idx = 0
@@ -239,10 +244,7 @@ class KPolicyMetaLearner(MetaLearner):
         assert 0 <= idx < self.meta_policy_num
 
         self.current_policy_idx = idx
-        if self.current_policy_idx > 0:
-            # randomly choose one existing policy to improve in this iteration
-            self.policy = copy.deepcopy(random.choice(self.policies[:self.current_policy_idx]))
-            self.policies[self.current_policy_idx] = self.policy
+        self.policy = self.policies[self.current_policy_idx]
 
     def sample_meta_policy(self, task, idx=None):
         """
@@ -263,7 +265,7 @@ class KPolicyMetaLearner(MetaLearner):
         """
         This does nothing when self.current_policy_idx == 0.
         It finds the best policy value from self.policies[0:policy_idx - 1] for each task in tasks
-        results kept in self.losses_of_optimized_policies
+        results kept in self.losses_of_optimized_policies and used to compute surrogate loss
 
         :return: None
         """
@@ -310,14 +312,7 @@ class KPolicyMetaLearner(MetaLearner):
             (train_episodes, valid_episodes) = episodes[episode_index]
             old_pi = old_pis[episode_index]
 
-            if self.current_policy_idx > 0 and total_rewards(valid_episodes.rewards) < self.values_of_optimized_policies[episode_index]:
-                # do not worry about this since we already have a good policy to cover this task
-                losses.append(torch.tensor(0.0))
-
-                # FIXME how to deal with these?
-                kls.append(torch.tensor(0.0))
-                pis.append(None)
-            else:
+            if self.current_policy_idx == 0 or total_rewards(valid_episodes.rewards) > self.values_of_optimized_policies[episode_index]:
                 params = self.adapt(train_episodes)
                 with torch.set_grad_enabled(old_pi is None):
                     pi = self.policy(valid_episodes.observations, params=params)
@@ -347,6 +342,12 @@ class KPolicyMetaLearner(MetaLearner):
                     kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
                         weights=mask)
                     kls.append(kl)
+            else:
+                pis.append(None)
 
-        return (torch.mean(torch.stack(losses, dim=0)),
-                torch.mean(torch.stack(kls, dim=0)), pis)
+        if len(losses) == 0 or len(kls) == 0:
+            # signal outside that no losses. avoiding taking mean of empty tensors..
+            return (None, None, pis)
+        else:
+            return (torch.mean(torch.stack(losses, dim=0)),
+                    torch.mean(torch.stack(kls, dim=0)), pis)
