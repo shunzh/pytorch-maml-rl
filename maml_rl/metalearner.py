@@ -1,5 +1,6 @@
 import copy
 import random
+from collections import OrderedDict
 
 import torch
 from torch.nn.utils.convert_parameters import (vector_to_parameters,
@@ -64,19 +65,16 @@ class MetaLearner(object):
 
         return loss
 
-    def adapt(self, episodes, policy=None, first_order=False):
+    def adapt(self, episodes, first_order=False):
         """Adapt the parameters of the policy network to a new task, from 
         sampled trajectories `episodes`, with a one-step gradient update [1].
         """
-        # optimize self.policy by default, or provided in the argument
-        if policy is None: policy = self.policy
-
         # Fit the baseline to the training episodes
         self.baseline.fit(episodes)
         # Get the loss on the training episodes
-        loss = self.inner_loss(episodes, policy=policy)
+        loss = self.inner_loss(episodes, policy=self.policy)
         # Get the new parameters after a one-step gradient update
-        params = policy.update_params(loss, step_size=self.fast_lr,
+        params = self.policy.update_params(loss, step_size=self.fast_lr,
             first_order=first_order)
             
         return params
@@ -292,6 +290,18 @@ class KPolicyMetaLearner(MetaLearner):
 
             print("values of optimized policies")
             print(self.values_of_optimized_policies)
+
+    def adapt(self, episodes, policy=None, first_order=False):
+        """
+        #FIXME a dummy function that does not adapt
+        """
+        if policy is None: policy = self.policy
+
+        params = OrderedDict()
+        for (name, param) in policy.named_parameters():
+            params[name] = param
+
+        return params
 
     def surrogate_loss(self, episodes, old_pis=None):
         """

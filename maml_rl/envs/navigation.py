@@ -63,10 +63,10 @@ class Navigation2DEnv(gym.Env):
 
 class Navigation2DBiasedEnv(Navigation2DEnv):
     """
-    going to one cluster with prob. 2/3, the other with prob. 1/3
+    going to either cluster with prob. 1/2
     """
     def sample_tasks(self, num_tasks):
-        lowerGoals = self.np_random.uniform(-0.6, -0.4, size=(int(num_tasks * 2 / 3), 2))
-        upperGoals = self.np_random.uniform(0.4, 0.6, size=(num_tasks - int(num_tasks * 2 / 3), 2))
+        lowerGoals = self.np_random.uniform(-0.6, -0.4, size=(int(num_tasks / 2), 2))
+        upperGoals = self.np_random.uniform(0.4, 0.6, size=(num_tasks - int(num_tasks / 2), 2))
         tasks = [{'goal': goal} for goal in np.concatenate((lowerGoals, upperGoals), axis=0)]
         return tasks
