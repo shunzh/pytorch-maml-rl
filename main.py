@@ -50,12 +50,13 @@ def main(args):
     baseline = LinearFeatureBaseline(
         int(np.prod(sampler.envs.observation_space.shape)))
 
-    if args.alg == 'maml':
+    if args.alg == 'simul':
         # vanilla maml
         metalearner = MetaLearner(sampler, policy, baseline, gamma=args.gamma,
             fast_lr=args.fast_lr, tau=args.tau, device=args.device)
 
         for batch in range(args.meta_policy_num * args.num_batches):
+            # first sample tasks under the distribution
             tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
             episodes = metalearner.sample(tasks, first_order=args.first_order)
             metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
@@ -73,7 +74,7 @@ def main(args):
                     'policy-{0}.pt'.format(batch)), 'wb') as f:
                 torch.save(policy.state_dict(), f)
 
-    elif args.alg == 'kmaml':
+    elif args.alg == 'greedy':
         # multi-policy maml
         metalearner = KPolicyMetaLearner(sampler, policy, baseline, args.meta_policy_num, gamma=args.gamma,
             fast_lr=args.fast_lr, tau=args.tau, device=args.device)

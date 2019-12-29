@@ -293,7 +293,7 @@ class KPolicyMetaLearner(MetaLearner):
 
     def adapt(self, episodes, policy=None, first_order=False):
         """
-        #FIXME a dummy function that does not adapt
+        #TODO a dummy function that does not adapt, will implement test-phase update when necesary
         """
         if policy is None: policy = self.policy
 
@@ -305,7 +305,8 @@ class KPolicyMetaLearner(MetaLearner):
 
     def surrogate_loss(self, episodes, old_pis=None):
         """
-        E_r max( V_r^{adapted self.policy} - \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi, 0 )
+        Surrogate objective:
+        E_r SmoothReLU( V_r^{adapted self.policy} - \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi)
 
         V_r^{adapted self.policy} can be evaluated by valid_episodes in episodes
         \max_{\pi \in self.policies[0:policy_idx - 1} V_r^\pi is computed in self.values_of_optimized_policies
