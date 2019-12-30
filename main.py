@@ -58,6 +58,7 @@ def main(args):
         for batch in range(args.meta_policy_num * args.num_batches):
             # first sample tasks under the distribution
             tasks = sampler.sample_tasks(num_tasks=args.meta_batch_size)
+            # get episodes in the form of (train episodes, test episodes after adaption)
             episodes = metalearner.sample(tasks, first_order=args.first_order)
             metalearner.step(episodes, max_kl=args.max_kl, cg_iters=args.cg_iters,
                 cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,

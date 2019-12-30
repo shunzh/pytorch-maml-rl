@@ -60,6 +60,7 @@ class MetaLearner(object):
         log_probs = pi.log_prob(episodes.actions)
         if log_probs.dim() > 2:
             log_probs = torch.sum(log_probs, dim=2)
+        # log \pi(s, a) (q(s, a) - baseline(s))
         loss = -weighted_mean(log_probs * advantages, dim=0,
             weights=episodes.mask)
 
@@ -134,6 +135,9 @@ class MetaLearner(object):
         return _product
 
     def surrogate_loss(self, episodes, old_pis=None):
+        """
+        :param old_pis: only used for line search?
+        """
         losses, kls, pis = [], [], []
         if old_pis is None:
             old_pis = [None] * len(episodes)
