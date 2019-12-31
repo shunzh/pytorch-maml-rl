@@ -23,8 +23,8 @@ class Policy(nn.Module):
             create_graph=not first_order)
         updated_params = OrderedDict()
         for (name, param), grad in zip(self.named_parameters(), grads):
-            #updated_params[name] = param - step_size * grad
-            # FIXME hack here to disable 'adapt'
-            updated_params[name] = param
+            updated_params[name] = param - step_size * grad
+            # hack here to disable 'adapt'?
+            #updated_params[name] = param
 
         return updated_params

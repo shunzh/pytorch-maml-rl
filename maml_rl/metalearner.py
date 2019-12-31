@@ -16,6 +16,12 @@ def total_rewards(episodes_rewards, aggregation=torch.mean):
         for rewards in episodes_rewards], dim=0))
     return rewards.item()
 
+def smoothReLU(x):
+    """
+    :return: log(1 + e^x)
+    """
+    return torch.log(1 + torch.exp(x))
+
 class MetaLearner(object):
     """Meta-learner
 
@@ -136,16 +142,20 @@ class MetaLearner(object):
 
     def surrogate_loss(self, episodes, old_pis=None):
         """
-        :param old_pis: only used for line search?
+        Using TRPO.
+
+        old_pis are not None only when doing line search?
         """
         losses, kls, pis = [], [], []
         if old_pis is None:
             old_pis = [None] * len(episodes)
 
         for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
+            # adapt our policy network to a new task
             params = self.adapt(train_episodes)
             with torch.set_grad_enabled(old_pi is None):
                 pi = self.policy(valid_episodes.observations, params=params)
+                # the set of policies adapted to each task
                 pis.append(detach_distribution(pi))
 
                 if old_pi is None:
