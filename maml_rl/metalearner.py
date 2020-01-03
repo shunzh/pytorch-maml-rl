@@ -1,4 +1,5 @@
 import copy
+import math
 import random
 from collections import OrderedDict
 
@@ -18,9 +19,11 @@ def total_rewards(episodes_rewards, aggregation=torch.mean):
 
 def smoothReLU(x):
     """
+    A smooth estimation of ReLU.
+
     :return: log(1 + e^x)
     """
-    return torch.log(1 + torch.exp(x))
+    return math.log(1 + math.exp(x))
 
 class MetaLearner(object):
     """Meta-learner
@@ -145,6 +148,7 @@ class MetaLearner(object):
         Using TRPO.
 
         old_pis are not None only when doing line search?
+        How are old_pis used? Like the behavior policy in TRPO? How?
         """
         losses, kls, pis = [], [], []
         if old_pis is None:
@@ -153,6 +157,7 @@ class MetaLearner(object):
         for (train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
             # adapt our policy network to a new task
             params = self.adapt(train_episodes)
+            # doing learning only when old_pi is None?
             with torch.set_grad_enabled(old_pi is None):
                 pi = self.policy(valid_episodes.observations, params=params)
                 # the set of policies adapted to each task
@@ -307,7 +312,7 @@ class KPolicyMetaLearner(MetaLearner):
 
     def adapt(self, episodes, policy=None, first_order=False):
         """
-        #TODO a dummy function that does not adapt, will implement test-phase update when necesary
+        #TODO a dummy function that does not adapt, will implement test-phase update when necessary
         """
         if policy is None: policy = self.policy
 
@@ -337,38 +342,41 @@ class KPolicyMetaLearner(MetaLearner):
             (train_episodes, valid_episodes) = episodes[episode_index]
             old_pi = old_pis[episode_index]
 
-            if self.current_policy_idx == 0 or total_rewards(valid_episodes.rewards) > self.values_of_optimized_policies[episode_index]:
-                params = self.adapt(train_episodes)
-                with torch.set_grad_enabled(old_pi is None):
-                    pi = self.policy(valid_episodes.observations, params=params)
-                    pis.append(detach_distribution(pi))
-
-                    if old_pi is None:
-                        old_pi = detach_distribution(pi)
-
-                    values = self.baseline(valid_episodes)
-                    advantages = valid_episodes.gae(values, tau=self.tau)
-                    advantages = weighted_normalize(advantages,
-                        weights=valid_episodes.mask)
-
-                    log_ratio = (pi.log_prob(valid_episodes.actions)
-                        - old_pi.log_prob(valid_episodes.actions))
-                    if log_ratio.dim() > 2:
-                        log_ratio = torch.sum(log_ratio, dim=2)
-                    ratio = torch.exp(log_ratio)
-
-                    loss = -weighted_mean(ratio * advantages, dim=0,
-                        weights=valid_episodes.mask)
-                    losses.append(loss)
-
-                    mask = valid_episodes.mask
-                    if valid_episodes.actions.dim() > 2:
-                        mask = mask.unsqueeze(2)
-                    kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
-                        weights=mask)
-                    kls.append(kl)
+            if self.current_policy_idx == 0:
+                dominance_correction = 1
             else:
-                pis.append(None)
+                difference_from_best_value = total_rewards(valid_episodes.rewards) - self.values_of_optimized_policies[episode_index]
+                dominance_correction = 1 - 1 / (1 + math.exp(difference_from_best_value))
+
+            params = self.adapt(train_episodes)
+            with torch.set_grad_enabled(old_pi is None):
+                pi = self.policy(valid_episodes.observations, params=params)
+                pis.append(detach_distribution(pi))
+
+                if old_pi is None:
+                    old_pi = detach_distribution(pi)
+
+                values = self.baseline(valid_episodes)
+                advantages = valid_episodes.gae(values, tau=self.tau)
+                advantages = weighted_normalize(advantages,
+                    weights=valid_episodes.mask)
+
+                log_ratio = (pi.log_prob(valid_episodes.actions)
+                    - old_pi.log_prob(valid_episodes.actions))
+                if log_ratio.dim() > 2:
+                    log_ratio = torch.sum(log_ratio, dim=2)
+                ratio = torch.exp(log_ratio)
+
+                loss = - dominance_correction * weighted_mean(ratio * advantages, dim=0,
+                    weights=valid_episodes.mask)
+                losses.append(loss)
+
+                mask = valid_episodes.mask
+                if valid_episodes.actions.dim() > 2:
+                    mask = mask.unsqueeze(2)
+                kl = weighted_mean(kl_divergence(pi, old_pi), dim=0,
+                    weights=mask)
+                kls.append(kl)
 
         if len(losses) == 0 or len(kls) == 0:
             # signal outside that no losses. avoiding taking mean of empty tensors..
