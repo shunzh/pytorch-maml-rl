@@ -1,0 +1,1 @@
+python main.py --env-name 2DNavigationBiased-v0 --num-workers 8 --fast-lr 0.1 --max-kl 0.01 --fast-batch-size 20 --meta-batch-size 10 --num-layers 2 --hidden-size 50 --num-batches 50 --gamma 0.99 --tau 1.0 --cg-damping 1e-5 --ls-max-steps 15 --meta-policy-num 2 --alg greedy
